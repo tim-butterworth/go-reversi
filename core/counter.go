@@ -5,11 +5,6 @@ type Itterator interface {
 	Next() []int
 }
 
-type Coordinate struct {
-	X int
-	Y int
-}
-
 type Counter struct {
 	values  [][]int
 	indexes []int
