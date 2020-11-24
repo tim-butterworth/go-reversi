@@ -38,16 +38,18 @@ func expect(t *testing.T, b bool) boolAssertions {
 	}
 }
 
-type TestResultHandler struct{}
+type TestResultHandler struct {
+	result core.MoveResult
+}
 
-func (handler TestResultHandler) MoveSuccess(result core.MoveResult) {
+func (handler *TestResultHandler) MoveSuccess(result core.MoveResult) {
 	fmt.Println("Success called!")
 	fmt.Println(result.Side())
-	for _, move := range result.Moves() {
-		fmt.Printf("(%d, %d)\n", move.X, move.Y)
-	}
+	fmt.Println(len(result.Moves()))
+
+	handler.result = result
 }
-func (handler TestResultHandler) MoveFailure() {
+func (handler *TestResultHandler) MoveFailure() {
 	fmt.Println("Failure called!")
 }
 
@@ -81,6 +83,7 @@ func TestIsPossibleMove_returnsFalse_forNonPossibleMoves(t *testing.T) {
 		expect(t, actual).toBeFalse(fmt.Sprintf("for: (%d, %d)", coordinate.X, coordinate.Y))
 	}
 }
+
 // BWeee---
 // BW_We---
 // eBBBee--
@@ -99,52 +102,24 @@ func TestIsPossibleMove_returnsFalse_forNonPossibleMoves(t *testing.T) {
 // --e_e---
 // --------
 func TestAttemptSomeMoves(t *testing.T) {
-	brain := core.NewGameBrain()
-
 	handler := TestResultHandler{}
-	moves := []core.Move{
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 3, Y: 5}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 2, Y: 3}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 1, Y: 2}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 1, Y: 3}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 2, Y: 2}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 1, Y: 1}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 0, Y: 0}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 1, Y: 0}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 0, Y: 1}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 3, Y: 1}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 3, Y: 2}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 2, Y: 1}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 4, Y: 0}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 4, Y: 1}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 4, Y: 2}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 3, Y: 6}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 0, Y: 3}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 0, Y: 2}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 2, Y: 0}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 3, Y: 0}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 2, Y: 6}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 1, Y: 6}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 1, Y: 7}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 5, Y: 5}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 3, Y: 7}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 5, Y: 4}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 0, Y: 6}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 2, Y: 4}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 0, Y: 4}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 0, Y: 5}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 1, Y: 4}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 0, Y: 7}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 1, Y: 5}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 2, Y: 7}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 6, Y: 4}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 2, Y: 5}},
-		core.Move{Side: core.BLACK, Coordinate: core.Coordinate{X: 4, Y: 6}},
-		core.Move{Side: core.WHITE, Coordinate: core.Coordinate{X: 4, Y: 7}},
-	}
-	for _, move := range moves {
-		brain.AttemptMove(move, handler)
-	}
+	brain := core.NewGameBrain(&handler)
 
-	brain.PrintGameState()
+	moveList := handler.result.Moves()
+	move := core.Move{Coordinate: moveList[0], Side: handler.result.Side()}
+	fmt.Printf("(%d, %d)\n", move.Coordinate.X, move.Coordinate.Y)
+	for {
+		brain.AttemptMove(move)
+		brain.PrintGameState()
+
+		moveResult := handler.result
+		moves := moveResult.Moves()
+		side := moveResult.Side()
+
+		if len(moves) == 0 {
+			break
+		}
+
+		move = core.Move{Side: side, Coordinate: moves[0]}
+	}
 }

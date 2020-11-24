@@ -37,7 +37,8 @@ func (owner notOwned) OwnedBy(player Player) bool {
 }
 
 type GameBrain struct {
-	GameState gameState
+	GameState     gameState
+	resultHandler ResultHandler
 }
 
 func (brain *GameBrain) ExecuteCommand(command GameCommand, responder Responder) {
@@ -326,20 +327,20 @@ func (brain *GameBrain) PrintGameState() {
 	for y := range bounds {
 		rowString := ""
 		for x := range bounds {
-			next := "?"
+			next := "[?]"
 			coordinate := Coordinate{X: x, Y: y}
 			owner := board[coordinate]
 
 			if possibleMoves.moves[coordinate] {
-				next = "_"
+				next = "[ ]"
 			} else if edge[coordinate] {
-				next = "e"
+				next = " e "
 			} else if owner == nil {
-				next = "-"
+				next = "[-]"
 			} else if owner.OwnedBy(BLACK) {
-				next = "B"
+				next = "[B]"
 			} else if owner.OwnedBy(WHITE) {
-				next = "W"
+				next = "[W]"
 			}
 
 			rowString = rowString + next
@@ -349,9 +350,10 @@ func (brain *GameBrain) PrintGameState() {
 }
 
 type MoveResult struct {
-	side Player
+	side           Player
 	availableMoves []Coordinate
 }
+
 func (result MoveResult) Side() Player {
 	return result.side
 }
@@ -437,21 +439,36 @@ func getCellsToFlip(board map[Coordinate]CellClaim, coordinate Coordinate, side 
 	return result
 }
 
-func (brain *GameBrain) AttemptMove(move Move, resultHandler ResultHandler) {
+func moveResultFromGameState(gameState gameState) MoveResult {
+	movesThatArePossible := gameState.possibleMoves.moves
+	availableMoves := make([]Coordinate, len(movesThatArePossible))
+	index := 0
+	for move := range movesThatArePossible {
+		availableMoves[index] = move
+		index++
+	}
+
+	return MoveResult{
+		side:           gameState.playerTurn,
+		availableMoves: availableMoves,
+	}
+}
+
+func (brain *GameBrain) AttemptMove(move Move) {
 	side := move.Side
 	if brain.GameState.playerTurn != side {
-		resultHandler.MoveFailure()
+		brain.resultHandler.MoveFailure()
 		return
 	}
 
 	coordinate := move.Coordinate
 	if brain.GameState.used[coordinate] {
-		resultHandler.MoveFailure()
+		brain.resultHandler.MoveFailure()
 		return
 	}
 
 	if !brain.GameState.possibleMoves.moves[coordinate] {
-		resultHandler.MoveFailure()
+		brain.resultHandler.MoveFailure()
 		return
 	}
 
@@ -476,28 +493,19 @@ func (brain *GameBrain) AttemptMove(move Move, resultHandler ResultHandler) {
 	gameState.used[coordinate] = true
 	gameState.edge = updateEdge(gameState.edge, gameState.used, coordinate)
 	gameState.possibleMoves = getPossibleMoves(gameState.edge, gameState.board, nextSide)
-	
+
 	brain.GameState = gameState
 
-	availableMoves := make([]Coordinate, len(gameState.possibleMoves.moves))
-	index := 0
-	for move := range gameState.possibleMoves.moves {
-		availableMoves[index]= move
-		index++
-	}
-
-	resultHandler.MoveSuccess(MoveResult{
-		side: gameState.playerTurn,
-		availableMoves: availableMoves,
-	})
+	moveResult := moveResultFromGameState(brain.GameState)
+	brain.resultHandler.MoveSuccess(moveResult)
 }
 
-func NewGameBrain() GameBrain {
+func NewGameBrain(resultHandler ResultHandler) GameBrain {
 	gameBrain := GameBrain{
-		GameState: getInitialGameState(),
+		GameState:     getInitialGameState(),
+		resultHandler: resultHandler,
 	}
 
-	gameBrain.PrintGameState()
-
+	resultHandler.MoveSuccess(moveResultFromGameState(gameBrain.GameState))
 	return gameBrain
 }
