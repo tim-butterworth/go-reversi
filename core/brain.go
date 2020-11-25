@@ -37,8 +37,7 @@ func (owner notOwned) OwnedBy(player Player) bool {
 }
 
 type GameBrain struct {
-	GameState     gameState
-	resultHandler ResultHandler
+	GameState gameState
 }
 
 func (brain *GameBrain) ExecuteCommand(command GameCommand, responder Responder) {
@@ -349,20 +348,28 @@ func (brain *GameBrain) PrintGameState() {
 	}
 }
 
-type MoveResult struct {
-	side           Player
+type NextPlayInfo struct {
+	player         Player
 	availableMoves []Coordinate
 }
-
-func (result MoveResult) Side() Player {
-	return result.side
+type MoveSuccessResult struct {
+	nextPlay    NextPlayInfo
+	appliedMove Move
 }
-func (result MoveResult) Moves() []Coordinate {
-	return result.availableMoves
+
+func (nextPlayerInfo NextPlayInfo) NextPlayer() Player {
+	return nextPlayerInfo.player
+}
+func (nextPlayerInfo NextPlayInfo) Moves() []Coordinate {
+	return nextPlayerInfo.availableMoves
+}
+func (result MoveSuccessResult) NextPlayerInfo() NextPlayInfo {
+	return result.nextPlay
 }
 
 type ResultHandler interface {
-	MoveSuccess(result MoveResult)
+	MoveSuccess(result MoveSuccessResult)
+	GameInitialized(nextPlay NextPlayInfo)
 	MoveFailure()
 }
 
@@ -439,7 +446,7 @@ func getCellsToFlip(board map[Coordinate]CellClaim, coordinate Coordinate, side 
 	return result
 }
 
-func moveResultFromGameState(gameState gameState) MoveResult {
+func nextPlayInfoFromGameState(gameState gameState) NextPlayInfo {
 	movesThatArePossible := gameState.possibleMoves.moves
 	availableMoves := make([]Coordinate, len(movesThatArePossible))
 	index := 0
@@ -448,27 +455,34 @@ func moveResultFromGameState(gameState gameState) MoveResult {
 		index++
 	}
 
-	return MoveResult{
-		side:           gameState.playerTurn,
+	return NextPlayInfo{
+		player:         gameState.playerTurn,
 		availableMoves: availableMoves,
 	}
 }
 
-func (brain *GameBrain) AttemptMove(move Move) {
+func getMoveResult(appliedMove Move, gameState gameState) MoveSuccessResult {
+	return MoveSuccessResult{
+		nextPlay:    nextPlayInfoFromGameState(gameState),
+		appliedMove: appliedMove,
+	}
+}
+
+func (brain *GameBrain) AttemptMove(move Move, resultHandler ResultHandler) {
 	side := move.Side
 	if brain.GameState.playerTurn != side {
-		brain.resultHandler.MoveFailure()
+		resultHandler.MoveFailure()
 		return
 	}
 
 	coordinate := move.Coordinate
 	if brain.GameState.used[coordinate] {
-		brain.resultHandler.MoveFailure()
+		resultHandler.MoveFailure()
 		return
 	}
 
 	if !brain.GameState.possibleMoves.moves[coordinate] {
-		brain.resultHandler.MoveFailure()
+		resultHandler.MoveFailure()
 		return
 	}
 
@@ -479,10 +493,7 @@ func (brain *GameBrain) AttemptMove(move Move) {
 		owner = ownedByWhite{}
 	}
 
-	nextSide := side.opposite()
 	gameState := brain.GameState
-
-	gameState.playerTurn = nextSide
 
 	cellsToFlip := getCellsToFlip(gameState.board, coordinate, side)
 	for cell := range cellsToFlip {
@@ -492,20 +503,26 @@ func (brain *GameBrain) AttemptMove(move Move) {
 
 	gameState.used[coordinate] = true
 	gameState.edge = updateEdge(gameState.edge, gameState.used, coordinate)
-	gameState.possibleMoves = getPossibleMoves(gameState.edge, gameState.board, nextSide)
 
+	// Try to get moves for the opposite side
+	possibleMoves := getPossibleMoves(gameState.edge, gameState.board, side.opposite())
+	if len(possibleMoves.moves) == 0 {
+		// If there are no moves for the opposite side, get moves for the same side
+		possibleMoves = getPossibleMoves(gameState.edge, gameState.board, side)
+	}
+
+	gameState.possibleMoves = possibleMoves
+	gameState.playerTurn = possibleMoves.side
 	brain.GameState = gameState
 
-	moveResult := moveResultFromGameState(brain.GameState)
-	brain.resultHandler.MoveSuccess(moveResult)
+	moveResult := getMoveResult(move, brain.GameState)
+	resultHandler.MoveSuccess(moveResult)
+}
+
+func (brain *GameBrain) Initialize(resultHandler ResultHandler) {
+	resultHandler.GameInitialized(nextPlayInfoFromGameState(brain.GameState))
 }
 
 func NewGameBrain(resultHandler ResultHandler) GameBrain {
-	gameBrain := GameBrain{
-		GameState:     getInitialGameState(),
-		resultHandler: resultHandler,
-	}
-
-	resultHandler.MoveSuccess(moveResultFromGameState(gameBrain.GameState))
-	return gameBrain
+	return GameBrain{GameState: getInitialGameState()}
 }

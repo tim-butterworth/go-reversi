@@ -39,18 +39,23 @@ func expect(t *testing.T, b bool) boolAssertions {
 }
 
 type TestResultHandler struct {
-	result core.MoveResult
+	result core.NextPlayInfo
 }
 
-func (handler *TestResultHandler) MoveSuccess(result core.MoveResult) {
+func (handler *TestResultHandler) MoveSuccess(result core.MoveSuccessResult) {
 	fmt.Println("Success called!")
-	fmt.Println(result.Side())
-	fmt.Println(len(result.Moves()))
+	fmt.Println(result.NextPlayerInfo().NextPlayer())
+	fmt.Println(len(result.NextPlayerInfo().Moves()))
 
-	handler.result = result
+	handler.result = result.NextPlayerInfo()
 }
 func (handler *TestResultHandler) MoveFailure() {
 	fmt.Println("Failure called!")
+}
+func (handler *TestResultHandler) GameInitialized(nextPlay core.NextPlayInfo) {
+	handler.result = nextPlay
+
+	fmt.Println("Initialize called")
 }
 
 func TestIsPossibleMove_returnsTrue_forPossibleMoves(t *testing.T) {
@@ -84,42 +89,39 @@ func TestIsPossibleMove_returnsFalse_forNonPossibleMoves(t *testing.T) {
 	}
 }
 
-// BWeee---
-// BW_We---
-// eBBBee--
-// eWBBWe--
-// eeeBBe--
-// --_B__--
-// --e_e---
-// --------
-
-// BWeee---
-// BWWWe---
-// eBBWee--
-// eWBBWe--
-// eeeBBe--
-// --_B__--
-// --e_e---
-// --------
 func TestAttemptSomeMoves(t *testing.T) {
 	handler := TestResultHandler{}
 	brain := core.NewGameBrain(&handler)
 
+	brain.Initialize(&handler)
+
 	moveList := handler.result.Moves()
-	move := core.Move{Coordinate: moveList[0], Side: handler.result.Side()}
+	move := core.Move{Coordinate: moveList[0], Side: handler.result.NextPlayer()}
 	fmt.Printf("(%d, %d)\n", move.Coordinate.X, move.Coordinate.Y)
+
+	appliedMoves := make([]core.Move, 64)
+	moveCount := 0
 	for {
-		brain.AttemptMove(move)
+		brain.AttemptMove(move, &handler)
 		brain.PrintGameState()
 
 		moveResult := handler.result
 		moves := moveResult.Moves()
-		side := moveResult.Side()
+		side := moveResult.NextPlayer()
 
 		if len(moves) == 0 {
 			break
 		}
 
 		move = core.Move{Side: side, Coordinate: moves[0]}
+
+		appliedMoves[moveCount] = move
+		moveCount++
+	}
+
+	appliedMoves = appliedMoves[0:moveCount]
+
+	for _, move := range appliedMoves {
+		fmt.Printf("Side -> %s (%d, %d)\n", move.Side, move.Coordinate.X, move.Coordinate.Y)
 	}
 }
