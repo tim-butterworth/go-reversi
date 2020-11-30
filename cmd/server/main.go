@@ -26,7 +26,7 @@ func listen(listener net.Listener) {
 }
 
 func main() {
-	listener, err := net.Listen("tcp", "localhost:9090")
+	listener, err := net.Listen("tcp", ":9090")
 	if err != nil {
 		log.Fatalf("unable to start server: %s", err.Error())
 	}

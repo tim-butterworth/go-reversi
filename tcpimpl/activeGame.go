@@ -24,56 +24,11 @@ func asString(b bool) string {
 	}
 }
 
-type infraResponder struct {
-	players    []*ActivePlayer
-	responseId uuid.UUID
-}
-
-func (responder infraResponder) RespondAll(message string) {
-	for _, player := range responder.players {
-		player.Notify(message)
-	}
-}
-
-func (responder infraResponder) Respond(message string) {
-	for _, player := range responder.players {
-		if player.ResponseId == responder.responseId {
-			player.Notify(message + " -> " + responder.responseId.String())
-		}
-	}
-}
-
-func (responder infraResponder) NotifyActivePlayer(message string, activePlayerSide core.Player) {
-	for _, player := range responder.players {
-		if player.side == activePlayerSide {
-			player.Notify(message + " -> " + "for player of side black")
-		}
-	}
-}
-
-func (responder infraResponder) NotifyInactivePlayer(message string, activePlayerSide core.Player) {
-	for _, player := range responder.players {
-		if player.side != activePlayerSide {
-			player.Notify(message + " -> " + "for player of side white")
-		}
-	}
-}
-
-type responderFactory struct {
-	players []*ActivePlayer
-}
-
-func (factory responderFactory) getInstance(responseId uuid.UUID) infraResponder {
-	return infraResponder{
-		players:    factory.players,
-		responseId: responseId,
-	}
-}
-
 func listenForCommands(commandChannel <-chan InfrastructureCommand, players []*ActivePlayer) {
 	factory := responderFactory{players: players}
 
-	brain := core.NewGameBrain()
+	brain := core.NewGameBrain(factory.getSuccessInstance())
+	brain.Initialize(factory.getInstance(players[0].ResponseId))
 
 	for {
 		command := <-commandChannel
@@ -98,7 +53,7 @@ func (activeGame *activeGameImpl) Start() error {
 }
 
 type InfrastructureCommand struct {
-	CoreCommand core.GameCommand
+	CoreCommand core.Command
 	ResponseId  uuid.UUID
 }
 

@@ -1,11 +1,11 @@
 package tcpimpl
 
 import (
-	"net"
 	"github.com/google/uuid"
+	"net"
 )
 
 type PlayerConnection struct {
 	Connection net.Conn
-	Id uuid.UUID
+	Id         uuid.UUID
 }

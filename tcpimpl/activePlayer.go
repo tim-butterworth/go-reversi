@@ -1,6 +1,7 @@
 package tcpimpl
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
 	"reversi/core"
@@ -20,9 +21,20 @@ func (player *ActivePlayer) RespondsTo(side core.Player) bool {
 	return player.side == side
 }
 
+type SideAssigned struct {
+	Side core.Player
+}
+
 func (player *ActivePlayer) notifyOfGameStart() error {
-	_, err := player.connection.Write([]byte("Game has started and you are on side " + player.side))
-	return err
+	sideAssigned := SideAssigned{Side: player.side}
+	data, err := json.Marshal(sideAssigned)
+	if err != nil {
+		return err
+	}
+
+	fmt.Println(string(data))
+	player.Notify(string(data))
+	return nil
 }
 
 func (player *ActivePlayer) listenForPlayerInput() {
@@ -31,20 +43,22 @@ func (player *ActivePlayer) listenForPlayerInput() {
 		for {
 			offset, err := player.connection.Read(data)
 			if err != nil {
-				fmt.Errorf("Error reading data %s", err.Error())
+				fmt.Errorf("Error reading data %s\n", err.Error())
 			}
 
 			if offset < 1 {
-				fmt.Errorf("Error reading data %s", "connection may be closed")
+				fmt.Errorf("Error reading data %s", "connection may be closed\n")
 				break
 			}
 
-			fmt.Println(string(data[:offset]))
-			fmt.Println(player.side)
+			coordinate := core.Coordinate{}
+			json.Unmarshal(data[:offset], &coordinate)
+
+			fmt.Printf("Received Coordinate from client %s with value (%d, %d)\n", player.side, coordinate.X, coordinate.Y)
 
 			player.commandChannel <- InfrastructureCommand{
 				ResponseId:  player.ResponseId,
-				CoreCommand: core.GameCommand{},
+				CoreCommand: core.NewMoveCommand(player.side, coordinate),
 			}
 		}
 	}
@@ -70,14 +84,14 @@ func (player *ActivePlayer) RespondsFor(responseId uuid.UUID) bool {
 }
 
 func (player ActivePlayer) start() {
+	go player.listenForPlayerInput()
+	go writeOutput(player.outputChannel, player.connection)
+
 	fmt.Println("Starting player for side: " + player.side)
 	err := player.notifyOfGameStart()
 	if err != nil {
 		panic(err.Error())
 	}
-
-	go player.listenForPlayerInput()
-	go writeOutput(player.outputChannel, player.connection)
 }
 
 func NewActivePlayer(side core.Player, connection net.Conn, commandChannel chan<- InfrastructureCommand) *ActivePlayer {

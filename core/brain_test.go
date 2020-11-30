@@ -38,24 +38,53 @@ func expect(t *testing.T, b bool) boolAssertions {
 	}
 }
 
-type TestResultHandler struct {
-	result core.NextPlayInfo
+type TestEventConsumer struct {
+	events    []core.Event
+	consumers []core.EventConsumer
 }
 
-func (handler *TestResultHandler) MoveSuccess(result core.MoveSuccessResult) {
-	fmt.Println("Success called!")
-	fmt.Println(result.NextPlayerInfo().NextPlayer())
-	fmt.Println(len(result.NextPlayerInfo().Moves()))
+func (consumer *TestEventConsumer) SendEvent(event core.Event) {
+	existingEventCount := len(consumer.events)
+	nextEvents := make([]core.Event, existingEventCount+1)
 
-	handler.result = result.NextPlayerInfo()
-}
-func (handler *TestResultHandler) MoveFailure() {
-	fmt.Println("Failure called!")
-}
-func (handler *TestResultHandler) GameInitialized(nextPlay core.NextPlayInfo) {
-	handler.result = nextPlay
+	for i, event := range consumer.events {
+		nextEvents[i] = event
+	}
+	nextEvents[existingEventCount] = event
 
-	fmt.Println("Initialize called")
+	consumer.events = nextEvents
+
+	for _, c := range consumer.consumers {
+		c.SendEvent(event)
+	}
+}
+func (consumer *TestEventConsumer) register(toRegister core.EventConsumer) {
+	consumersLength := len(consumer.consumers)
+	updatedConsumers := make([]core.EventConsumer, consumersLength+1)
+
+	for i, c := range consumer.consumers {
+		updatedConsumers[i] = c
+	}
+	updatedConsumers[consumersLength] = toRegister
+
+	consumer.consumers = updatedConsumers
+}
+
+func NewTestEventConsumer() TestEventConsumer {
+	return TestEventConsumer{events: []core.Event{}}
+}
+
+type TestCommandRejectHandler struct {
+	rejectWasCalled bool
+}
+
+func (rejectHandler *TestCommandRejectHandler) InvalidCommand(command core.Command) {
+	rejectHandler.rejectWasCalled = true
+}
+func NewTestCommandRejectHandler() TestCommandRejectHandler {
+	return TestCommandRejectHandler{
+		rejectWasCalled: false,
+	}
 }
 
 func TestIsPossibleMove_returnsTrue_forPossibleMoves(t *testing.T) {
@@ -89,39 +118,277 @@ func TestIsPossibleMove_returnsFalse_forNonPossibleMoves(t *testing.T) {
 	}
 }
 
-func TestAttemptSomeMoves(t *testing.T) {
-	handler := TestResultHandler{}
-	brain := core.NewGameBrain(&handler)
+func Test_InitializeCommand_triggersGameStateUpdate(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
 
-	brain.Initialize(&handler)
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
 
-	moveList := handler.result.Moves()
-	move := core.Move{Coordinate: moveList[0], Side: handler.result.NextPlayer()}
-	fmt.Printf("(%d, %d)\n", move.Coordinate.X, move.Coordinate.Y)
+	brain.Initialize(&testRejectHandler)
 
-	appliedMoves := make([]core.Move, 64)
-	moveCount := 0
-	for {
-		brain.AttemptMove(move, &handler)
-		brain.PrintGameState()
-
-		moveResult := handler.result
-		moves := moveResult.Moves()
-		side := moveResult.NextPlayer()
-
-		if len(moves) == 0 {
-			break
-		}
-
-		move = core.Move{Side: side, Coordinate: moves[0]}
-
-		appliedMoves[moveCount] = move
-		moveCount++
+	eventCount := len(testEventConsumer.events)
+	if !(eventCount == 1) {
+		t.Errorf("Expected 1 event, instead got %d", eventCount)
 	}
 
-	appliedMoves = appliedMoves[0:moveCount]
+	event := testEventConsumer.events[0]
+	if !(event.EventType == core.INITILIZED) {
+		t.Error("Should have been an INITIALIZED event")
+	}
+}
 
-	for _, move := range appliedMoves {
-		fmt.Printf("Side -> %s (%d, %d)\n", move.Side, move.Coordinate.X, move.Coordinate.Y)
+func Test_SecondInitializeCommand_isRejected(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	if testRejectHandler.rejectWasCalled {
+		t.Error("First Initialize should not have been rejected")
+	}
+
+	brain.Initialize(&testRejectHandler)
+	if !testRejectHandler.rejectWasCalled {
+		t.Error("Second Initialize should have been rejected")
+	}
+}
+
+func Test_ValidMove_triggersGameStateUpdate(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.BLACK, core.Coordinate{X: 2, Y: 4}), &testRejectHandler)
+
+	eventCount := len(testEventConsumer.events)
+	if !(eventCount == 2) {
+		t.Errorf("Expected 2 events, instead got %d", eventCount)
+	}
+
+	event := testEventConsumer.events[1]
+	if !(event.EventType == core.MOVED) {
+		t.Error("The second event should have been an MOVED event")
+	}
+}
+
+func Test_ValidMove_doesNotSignalInvalidCommand(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.BLACK, core.Coordinate{X: 2, Y: 4}), &testRejectHandler)
+
+	if testRejectHandler.rejectWasCalled {
+		t.Error("A successful command should not be rejected")
+	}
+}
+
+func Test_MoveByWrongSide_isRejected(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.WHITE, core.Coordinate{X: 2, Y: 4}), &testRejectHandler)
+
+	if !testRejectHandler.rejectWasCalled {
+		t.Error("Move for wrong side should have been rejected")
+	}
+
+	eventCount := len(testEventConsumer.events)
+	if !(eventCount == 1) {
+		t.Errorf("Expected 1 event, instead got %d", eventCount)
+	}
+
+	event := testEventConsumer.events[0]
+	if !(event.EventType == core.INITILIZED) {
+		t.Errorf("The second event should have been an %s event\n", core.INITILIZED)
+	}
+}
+
+func Test_MoveToInvalidLocation_isRejected(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.BLACK, core.Coordinate{X: 0, Y: 0}), &testRejectHandler)
+
+	if !testRejectHandler.rejectWasCalled {
+		t.Error("Move to invalid location should be rejected")
+	}
+
+	eventCount := len(testEventConsumer.events)
+	if !(eventCount == 1) {
+		t.Errorf("Expected 1 event, instead got %d", eventCount)
+	}
+
+	event := testEventConsumer.events[0]
+	if !(event.EventType == core.INITILIZED) {
+		t.Errorf("The second event should have been an %s event\n", core.INITILIZED)
+	}
+}
+
+func Test_ValidMoveBySecondPlayer_isAccepted(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.BLACK, core.Coordinate{X: 2, Y: 4}), &testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.WHITE, core.Coordinate{X: 2, Y: 3}), &testRejectHandler)
+
+	if testRejectHandler.rejectWasCalled {
+		t.Error("Should not reject a valid move")
+	}
+
+	eventCount := len(testEventConsumer.events)
+	if !(eventCount == 3) {
+		t.Errorf("Expected 3 events, instead got %d", eventCount)
+	}
+}
+
+func Test_MoveByWrongSecondPlayer_isRejected(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.BLACK, core.Coordinate{X: 2, Y: 4}), &testRejectHandler)
+
+	if testRejectHandler.rejectWasCalled {
+		t.Error("Should not reject a valid move")
+	}
+
+	brain.ExecuteCommand(core.NewMoveCommand(core.BLACK, core.Coordinate{X: 2, Y: 3}), &testRejectHandler)
+
+	if !testRejectHandler.rejectWasCalled {
+		t.Error("By a wrong player should be rejected")
+	}
+
+	eventCount := len(testEventConsumer.events)
+	if !(eventCount == 2) {
+		t.Errorf("Expected 2 event, instead got %d", eventCount)
+	}
+}
+
+func Test_MoveBySecondPlayer_toInvalidLocation_isRejected(t *testing.T) {
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+	brain.ExecuteCommand(core.NewMoveCommand(core.BLACK, core.Coordinate{X: 2, Y: 4}), &testRejectHandler)
+
+	if testRejectHandler.rejectWasCalled {
+		t.Error("Should not reject a valid move")
+	}
+
+	brain.ExecuteCommand(core.NewMoveCommand(core.WHITE, core.Coordinate{X: 0, Y: 0}), &testRejectHandler)
+
+	if !testRejectHandler.rejectWasCalled {
+		t.Error("By a wrong player should be rejected")
+	}
+
+	eventCount := len(testEventConsumer.events)
+	if !(eventCount == 2) {
+		t.Errorf("Expected 2 event, instead got %d", eventCount)
+	}
+}
+
+func Test_Entire_SequenceOfMovesForAGame(t *testing.T) {
+	moves := []core.Coordinate{
+		{X: 2, Y: 4},
+		{X: 2, Y: 5},
+		{X: 2, Y: 6},
+		{X: 1, Y: 4},
+		{X: 0, Y: 4},
+		{X: 4, Y: 5},
+		{X: 5, Y: 2},
+		{X: 4, Y: 2},
+		{X: 3, Y: 2},
+		{X: 2, Y: 1},
+		{X: 3, Y: 1},
+		{X: 4, Y: 1},
+		{X: 3, Y: 0},
+		{X: 1, Y: 5},
+		{X: 4, Y: 6},
+		{X: 2, Y: 7},
+		{X: 3, Y: 6},
+		{X: 1, Y: 3},
+		{X: 0, Y: 5},
+		{X: 3, Y: 5},
+		{X: 0, Y: 2},
+		{X: 1, Y: 2},
+		{X: 2, Y: 3},
+		{X: 2, Y: 2},
+		{X: 3, Y: 7},
+		{X: 0, Y: 3},
+		{X: 2, Y: 0},
+		{X: 6, Y: 2},
+		{X: 7, Y: 2},
+		{X: 5, Y: 3},
+		{X: 6, Y: 4},
+		{X: 5, Y: 4},
+		{X: 4, Y: 7},
+		{X: 7, Y: 4},
+		{X: 7, Y: 5},
+		{X: 5, Y: 7},
+		{X: 7, Y: 3},
+		{X: 6, Y: 3},
+		{X: 5, Y: 6},
+		{X: 5, Y: 5},
+		{X: 6, Y: 5},
+		{X: 5, Y: 0},
+		{X: 5, Y: 1},
+		{X: 4, Y: 0},
+		{X: 6, Y: 0},
+		{X: 1, Y: 7},
+		{X: 1, Y: 1},
+		{X: 1, Y: 0},
+		{X: 0, Y: 0},
+		{X: 0, Y: 1},
+		{X: 1, Y: 6},
+		{X: 0, Y: 7},
+		{X: 0, Y: 6},
+		{X: 7, Y: 6},
+		{X: 7, Y: 7},
+		{X: 6, Y: 6},
+		{X: 6, Y: 7},
+		{X: 7, Y: 1},
+		{X: 6, Y: 1},
+		{X: 7, Y: 0},
+	}
+
+	testEventConsumer := NewTestEventConsumer()
+
+	brain := core.NewGameBrain(&testEventConsumer)
+	testRejectHandler := NewTestCommandRejectHandler()
+
+	brain.Initialize(&testRejectHandler)
+
+	flip := 1
+	for _, move := range moves {
+		side := core.BLACK
+		if flip == -1 {
+			side = core.WHITE
+		}
+		flip = flip * -1
+
+		brain.ExecuteCommand(core.NewMoveCommand(side, move), &testRejectHandler)
+	}
+
+	if testRejectHandler.rejectWasCalled {
+		t.Error("All moves should have been valid")
 	}
 }

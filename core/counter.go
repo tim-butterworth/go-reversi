@@ -28,7 +28,7 @@ func (counter *Counter) Next() []int {
 	pointer := maxIndex
 	for {
 		currentIndex := counter.indexes[pointer]
-		if currentIndex < len(counter.values[pointer]) - 1 {
+		if currentIndex < len(counter.values[pointer])-1 {
 			counter.indexes[pointer] = currentIndex + 1
 			break
 		} else {

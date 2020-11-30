@@ -1,0 +1,5 @@
+verify communication channels work!
+
+ActiveGame -> ActiveMatch and it gets a ReversiGame
+
+TestDrive ReversiGame, it is the core of the game, should persistence live somewhere else?
