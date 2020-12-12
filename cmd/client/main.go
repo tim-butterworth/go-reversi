@@ -44,7 +44,7 @@ func listen(connection net.Conn, c chan<- bool, ended chan<- bool, moveChannel c
 	gameStarted := false
 
 	gameState := reversi_core.NewGameEventAggregator()
-	gameState.Register(reversi_core.NewPrintStateConsumer())
+	gameState.Register(core.NewPrintStateConsumer())
 
 	for {
 		readBytes, err := connection.Read(buffer)
