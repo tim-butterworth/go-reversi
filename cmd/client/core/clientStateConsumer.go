@@ -29,6 +29,13 @@ func (consumer *clientStateConsumer) StateUpdated(gameState reversi_core.GameSta
 			index = index + 1
 		}
 
+		index = index + 1
+		selectionMap[strconv.Itoa(index)] = reversi_core.Coordinate{
+			X: 100,
+			Y: 100,
+		}
+		fmt.Printf("possible move: %d -> (%d, %d)\n", index, 100, 100)
+
 		reader := bufio.NewReader(os.Stdin)
 
 		for {

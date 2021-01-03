@@ -1,0 +1,11 @@
+{
+    "compilerOptions": {
+	"module": "commonjs",
+	"target": "ES6",
+	"removeComments": true,
+	"preserveConstEnums": true,
+	"sourceRoot": "./app/",
+	"rootDir": "./app/",
+	"sourceMap": true
+    }
+}

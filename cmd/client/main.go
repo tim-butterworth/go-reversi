@@ -69,6 +69,7 @@ func listen(connection net.Conn, c chan<- bool, ended chan<- bool, moveChannel c
 			event := reversi_core.Event{}
 
 			json.Unmarshal(buffer[:readBytes], &event)
+			fmt.Printf("EventType -> [%s]\n", event.EventType)
 
 			if event.EventType == reversi_core.MOVED {
 				err, event = convertToMovedEvent(event)

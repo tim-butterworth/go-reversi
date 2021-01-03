@@ -3,7 +3,6 @@ package tcpimpl
 import (
 	"encoding/json"
 	"fmt"
-	"net"
 	"reversi/core"
 
 	"github.com/google/uuid"
@@ -11,7 +10,7 @@ import (
 
 type ActivePlayer struct {
 	side           core.Player
-	connection     net.Conn
+	connection     Connection
 	ResponseId     uuid.UUID
 	commandChannel chan<- InfrastructureCommand
 	outputChannel  chan string
@@ -23,11 +22,24 @@ func (player *ActivePlayer) RespondsTo(side core.Player) bool {
 
 type SideAssigned struct {
 	Side core.Player
+	Id   uuid.UUID
+}
+
+type SideAssignedEvent struct {
+	EventType string
+	Data      SideAssigned
 }
 
 func (player *ActivePlayer) notifyOfGameStart() error {
-	sideAssigned := SideAssigned{Side: player.side}
-	data, err := json.Marshal(sideAssigned)
+	sideAssigned := SideAssigned{
+		Side: player.side,
+		Id:   player.ResponseId,
+	}
+	sideAssignedEvent := SideAssignedEvent{
+		EventType: "SIDE_ASSIGNED",
+		Data:      sideAssigned,
+	}
+	data, err := json.Marshal(sideAssignedEvent)
 	if err != nil {
 		return err
 	}
@@ -38,40 +50,29 @@ func (player *ActivePlayer) notifyOfGameStart() error {
 }
 
 func (player *ActivePlayer) listenForPlayerInput() {
+	defer player.connection.Close()
 	for {
-		data := make([]byte, 1024)
-		for {
-			offset, err := player.connection.Read(data)
-			if err != nil {
-				fmt.Errorf("Error reading data %s\n", err.Error())
-			}
+		coordinate := core.Coordinate{}
+		err := player.connection.ReadJson(&coordinate)
+		if err != nil {
+			fmt.Printf("Error reading json -> %s\n", err.Error())
+			break
+		}
 
-			if offset < 1 {
-				fmt.Errorf("Error reading data %s", "connection may be closed\n")
-				break
-			}
+		fmt.Printf("Received Coordinate from client %s with value (%d, %d)\n", player.side, coordinate.X, coordinate.Y)
 
-			coordinate := core.Coordinate{}
-			json.Unmarshal(data[:offset], &coordinate)
-
-			fmt.Printf("Received Coordinate from client %s with value (%d, %d)\n", player.side, coordinate.X, coordinate.Y)
-
-			player.commandChannel <- InfrastructureCommand{
-				ResponseId:  player.ResponseId,
-				CoreCommand: core.NewMoveCommand(player.side, coordinate),
-			}
+		player.commandChannel <- InfrastructureCommand{
+			ResponseId:  player.ResponseId,
+			CoreCommand: core.NewMoveCommand(player.side, coordinate),
 		}
 	}
 }
 
-func writeOutput(outputChannel <-chan string, connection net.Conn) {
+func writeOutput(outputChannel <-chan string, connection Connection) {
 	for {
 		message := <-outputChannel
 
-		_, err := connection.Write([]byte(message + "\n"))
-		if err != nil {
-			panic(err.Error())
-		}
+		connection.Message(message)
 	}
 }
 
@@ -90,11 +91,12 @@ func (player ActivePlayer) start() {
 	fmt.Println("Starting player for side: " + player.side)
 	err := player.notifyOfGameStart()
 	if err != nil {
+		fmt.Printf("Giving up -> %s\n", err.Error())
 		panic(err.Error())
 	}
 }
 
-func NewActivePlayer(side core.Player, connection net.Conn, commandChannel chan<- InfrastructureCommand) *ActivePlayer {
+func NewActivePlayer(side core.Player, connection Connection, commandChannel chan<- InfrastructureCommand) *ActivePlayer {
 	return &ActivePlayer{
 		side:           side,
 		connection:     connection,

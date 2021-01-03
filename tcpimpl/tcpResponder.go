@@ -27,9 +27,8 @@ func newTcpResponder(infraResponder infraResponder) *tcpResponder {
 	return &tcpResponder{infraResponder: infraResponder}
 }
 
-func (responder *tcpResponder) SendEvent(event core.Event) {
-}
 func (responder *tcpResponder) InvalidCommand(command core.Command) {
+	responder.infraResponder.respond("Command Rejected... so")
 }
 
 type infraResponder struct {

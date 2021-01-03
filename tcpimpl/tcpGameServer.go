@@ -2,7 +2,6 @@ package tcpimpl
 
 import (
 	"fmt"
-	"net"
 
 	"github.com/google/uuid"
 )
@@ -11,7 +10,7 @@ type PendingGame struct {
 	players []PlayerConnection
 }
 
-func (pending *PendingGame) addPlayer(connection net.Conn) error {
+func (pending *PendingGame) addPlayer(connection Connection) error {
 	if len(pending.players) < 2 {
 		uuid, err := uuid.NewUUID()
 		if err != nil {
@@ -28,32 +27,32 @@ func (pending *PendingGame) addPlayer(connection net.Conn) error {
 	return nil
 }
 
-func (pending PendingGame) IsFull() bool {
+func (pending *PendingGame) IsFull() bool {
 	return len(pending.players) == 2
 }
 
-func (pending PendingGame) stillAcceptingPlayers() bool {
+func (pending *PendingGame) stillAcceptingPlayers() bool {
 	return len(pending.players) < 2
 }
 
-func message(conn net.Conn, message string) {
-	_, err := conn.Write([]byte(message))
-	if err != nil {
-		fmt.Errorf("failed to send message: %s", err.Error())
-	}
+type Connection interface {
+	Error(message string)
+	Message(message string)
+	ReadJson(container interface{}) error
+	Close()
 }
 
-func (pendingGame *PendingGame) AddPlayer(playerConnection net.Conn) {
+func (pendingGame *PendingGame) AddPlayer(playerConnection Connection) {
 	if pendingGame.stillAcceptingPlayers() {
 		addPlayerErr := pendingGame.addPlayer(playerConnection)
 		if addPlayerErr != nil {
 			defer playerConnection.Close()
-			message(playerConnection, "failed to generate an id")
+			playerConnection.Error("failed to generate an id")
 			fmt.Errorf("failed to add the player to a pending game: %s", addPlayerErr.Error())
 		}
 	} else {
 		defer playerConnection.Close()
-		message(playerConnection, "Maximum players reached")
+		playerConnection.Message("Maximum players reached")
 	}
 }
 
