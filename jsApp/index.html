@@ -3,6 +3,16 @@
   </head>
   <body>
     <div class="app" ></div>
+    <meta charset="utf-8"/>
+    <script src="./build/wasm_exec.js"></script>
+    <script type="text/javascript" src="./build/wasm_exec.js"></script>
     <script type="text/javascript" src="./build/script.js"></script>
+
+    <script>
+      const go = new Go();
+      WebAssembly.instantiateStreaming(fetch("./build/main.wasm"), go.importObject).then((result) => {
+        go.run(result.instance);
+      });
+    </script>
   </body>
 </html>
