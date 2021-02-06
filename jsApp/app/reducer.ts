@@ -1,5 +1,11 @@
 import * as r from "rambda"
 
+import {
+    Maybe,
+    some,
+    none
+} from "./maybe"
+
 type AccessKey = string | number;
 type Result<T> = object | undefined | T;
 const safelyGet = <T>(obj: object, accessors: AccessKey[]): Result<T> => {
@@ -50,16 +56,24 @@ interface FinishedGame extends StateOfBoard<GameStates.FINISHED> {
 type BoardState = PendingGame | InProgressGame | FinishedGame;
 type AppState = {
     side: Sides,
+    isComitting: boolean,
     boardState: BoardState,
-    events: actions[]
+    events: actions[],
+    restoreState: BoardState[],
+    undoCount: number,
+    pendingMove: Maybe<Coordinate>,
 }
 
 const initialState: AppState = {
     side: Sides.NOT_ASSIGNED,
+    isComitting: false,
     boardState: {
         gameState: GameStates.NOT_STARTED,
     },
-    events: []
+    restoreState: [],
+    undoCount: 0,
+    events: [],
+    pendingMove: none()
 }
 
 type Coordinate = {
@@ -299,7 +313,13 @@ enum ActionTypes {
     INITIALIZED = "INITIALIZED",
     MOVED = "MOVED",
     SHOW_MOVES = "SHOW_MOVES",
-    HIDE_MOVES = "HIDE_MOVES"
+    HIDE_MOVES = "HIDE_MOVES",
+    PREVIEW_MOVE = "PREVIEW_MOVE",
+    UNDO = "UNDO",
+    COMMIT_MOVE = "COMMIT_MOVE",
+    COMMIT = "COMMIT",
+    MOVE_ACCEPTED = "MOVE_ACCEPTED",
+    MOVE_REJECTED = "MOVE_REJECTED"
 }
 
 interface Action<T extends ActionTypes> {
@@ -336,7 +356,44 @@ const getHide = (): HideMoves => ({
     actionType: ActionTypes.HIDE_MOVES
 })
 
-type actions = SideAssigned | Initialized | Moved | ShowMoves | HideMoves;
+interface PreviewMove extends Action<ActionTypes.PREVIEW_MOVE> {
+    data: Coordinate
+}
+const getPreviewMove = (data: Coordinate): PreviewMove => ({
+    actionType: ActionTypes.PREVIEW_MOVE,
+    data
+})
+interface UndoMove extends Action<ActionTypes.UNDO> { }
+const getUndo = (): UndoMove => ({
+    actionType: ActionTypes.UNDO
+})
+interface CommitMove extends Action<ActionTypes.COMMIT> {
+    data: Coordinate;
+}
+const getCommit = (data: Coordinate): CommitMove => ({
+    actionType: ActionTypes.COMMIT,
+    data
+})
+interface MoveAccepted extends Action<ActionTypes.MOVE_ACCEPTED> { }
+const getMoveAccepted = (): MoveAccepted => ({
+    actionType: ActionTypes.MOVE_ACCEPTED
+})
+
+interface MoveRejected extends Action<ActionTypes.MOVE_REJECTED> { }
+const getMoveRejected = (): MoveRejected => ({
+    actionType: ActionTypes.MOVE_REJECTED
+})
+
+type actions = SideAssigned
+    | Initialized
+    | Moved
+    | ShowMoves
+    | HideMoves
+    | PreviewMove
+    | UndoMove
+    | CommitMove
+    | MoveRejected
+    | MoveAccepted;
 
 const handleAction = ({ action, state }: { action: actions, state: AppState }): AppState => {
     if (action.actionType === ActionTypes.SIDE_ASSIGNED) {
@@ -406,6 +463,59 @@ const handleAction = ({ action, state }: { action: actions, state: AppState }): 
                 }
             }
         }
+
+        if (action.actionType === ActionTypes.PREVIEW_MOVE && state.undoCount <= 0) {
+            const coordinate: Coordinate = action.data;
+            if (r.includes(coordinate, state.boardState.availableMoves)) {
+                const updatedBoardState = updateBoardState(state.boardState, coordinate)
+                return {
+                    ...state,
+                    boardState: updatedBoardState,
+                    restoreState: [state.boardState, ...state.restoreState],
+                    undoCount: (state.undoCount + 1),
+                    pendingMove: some<Coordinate>(coordinate)
+                }
+            }
+        }
+
+        if (action.actionType === ActionTypes.COMMIT) {
+            return {
+                ...state,
+                isComitting: true
+            }
+        }
+
+        if (action.actionType === ActionTypes.MOVE_REJECTED && state.isComitting) {
+            const [restore, ...restoreState] = state.restoreState;
+            return {
+                ...state,
+                isComitting: false,
+                boardState: restore,
+                restoreState,
+                undoCount: (state.undoCount - 1),
+            }
+        }
+
+        if (action.actionType === ActionTypes.MOVE_ACCEPTED) {
+            return {
+                ...state,
+                isComitting: false,
+                restoreState: [],
+                undoCount: 0,
+                pendingMove: none()
+            }
+        }
+
+        if (action.actionType === ActionTypes.UNDO && state.undoCount > 0) {
+            const [restore, ...restoreState] = state.restoreState;
+            return {
+                ...state,
+                boardState: restore,
+                restoreState,
+                undoCount: (state.undoCount - 1),
+                pendingMove: none()
+            }
+        }
     }
     return state;
 }
@@ -426,7 +536,13 @@ export {
     getMoved,
     getShow,
     getHide,
+    getPreviewMove,
+    getUndo,
+    getCommit,
+    getMoveAccepted,
+    getMoveRejected,
     Sides,
     GameStates,
-    AppState
+    AppState,
+    Coordinate
 }

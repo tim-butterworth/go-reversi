@@ -6,28 +6,39 @@ import {
     getMoved,
     getShow,
     getHide,
+    getPreviewMove,
+    getUndo,
+    getCommit,
     Sides,
     GameStates,
-    AppState
+    AppState,
+    Coordinate,
+    getMoveAccepted
 } from "./reducer"
 
+import { ifPresent } from "./maybe"
 import * as r from "rambda"
 
 const socket = new WebSocket(`ws://${location.host}/ws`)
 
-const withAction = (rawEvent, actionConsumer) => {
+const withAction = (rawEvent, store) => {
     try {
         const unmappedAction = JSON.parse(JSON.parse(rawEvent).Text)
         if (unmappedAction.EventType === "SIDE_ASSIGNED") {
-            actionConsumer(getSideAssigned(unmappedAction.Data.Side))
+            store.dispatch(getSideAssigned(unmappedAction.Data.Side))
         }
 
         if (unmappedAction.EventType === "INITIALIZED") {
-            actionConsumer(getInitialized())
+            store.dispatch(getInitialized())
         }
 
         if (unmappedAction.EventType === "MOVED") {
-            actionConsumer(getMoved(unmappedAction.Data))
+            const state: AppState = store.getState();
+            if (state.isComitting) {
+                store.dispatch(getMoveAccepted())
+            } else {
+                store.dispatch(getMoved(unmappedAction.Data))
+            }
         }
     } catch (error) {
         console.log(`got a json parsing error attempting to parse ${rawEvent} -> ${error}`)
@@ -170,7 +181,7 @@ const renderBoard = (state: AppState, dispatch) => {
                     },
                     orElse: () => {
                         square.onclick = () => {
-                            socket.send(JSON.stringify({ X: x, Y: y }))
+                            dispatch(getPreviewMove({ X: x, Y: y }))
                         }
                     }
                 })
@@ -179,13 +190,66 @@ const renderBoard = (state: AppState, dispatch) => {
 
         const { showColor, hideColor } = getShowHideColors({ showMoves })
 
+        if (state.undoCount > 0 && !state.isComitting) {
+            const undo = document.createElementNS("http://www.w3.org/2000/svg", "rect")
+            const undoText = document.createElementNS("http://www.w3.org/2000/svg", "text")
+            undoText.textContent = `UNDO`;
+            undoText.setAttribute("x", "81")
+            undoText.setAttribute("y", "175")
+            undoText.setAttribute("width", "20")
+            undoText.setAttribute("height", "10")
+            undoText.setAttribute("font-size", "0.4em")
+            undoText.setAttribute("font-family", "monospace")
+            undoText.onclick = () => dispatch(getUndo())
+
+            undo.setAttribute("x", "81")
+            undo.setAttribute("y", "170")
+            undo.setAttribute("width", "20")
+            undo.setAttribute("height", "10")
+            undo.setAttribute("fill", showColor)
+            undo.onclick = () => dispatch(getUndo())
+
+            svg.appendChild(undo);
+            svg.appendChild(undoText);
+        }
+
+        ifPresent(state.pendingMove, (pendingMove: Coordinate) => {
+            const commit = document.createElementNS("http://www.w3.org/2000/svg", "rect")
+            const commitText = document.createElementNS("http://www.w3.org/2000/svg", "text")
+            const commitAction = () => {
+                socket.send(JSON.stringify(pendingMove))
+                dispatch(getCommit(pendingMove))
+            }
+
+            commitText.textContent = `COMMIT`;
+            commitText.setAttribute("x", "81")
+            commitText.setAttribute("y", "190")
+            commitText.setAttribute("width", "20")
+            commitText.setAttribute("height", "10")
+            commitText.setAttribute("font-size", "0.4em")
+            commitText.setAttribute("font-family", "monospace")
+            commitText.onclick = commitAction;
+
+            commit.setAttribute("x", "81")
+            commit.setAttribute("y", "185")
+            commit.setAttribute("width", "20")
+            commit.setAttribute("height", "10")
+            commit.setAttribute("fill", showColor)
+            commit.onclick = commitAction;
+
+            svg.appendChild(commit);
+            svg.appendChild(commitText);
+        })
+
         const show = document.createElementNS("http://www.w3.org/2000/svg", "rect")
         const showText = document.createElementNS("http://www.w3.org/2000/svg", "text")
         showText.textContent = "SHOW";
         showText.setAttribute("x", "21")
-        showText.setAttribute("y", "190")
+        showText.setAttribute("y", "175")
         showText.setAttribute("width", "20")
         showText.setAttribute("height", "10")
+        showText.setAttribute("font-size", "0.4em")
+        showText.setAttribute("font-family", "monospace")
         showText.onclick = () => dispatch(getShow())
 
         show.setAttribute("x", "21")
@@ -199,9 +263,11 @@ const renderBoard = (state: AppState, dispatch) => {
         const hideText = document.createElementNS("http://www.w3.org/2000/svg", "text")
         hideText.textContent = "HIDE";
         hideText.setAttribute("x", "126")
-        hideText.setAttribute("y", "190")
+        hideText.setAttribute("y", "175")
         hideText.setAttribute("width", "20")
         hideText.setAttribute("height", "10")
+        hideText.setAttribute("font-size", "0.4em")
+        hideText.setAttribute("font-family", "monospace")
         hideText.onclick = () => dispatch(getHide())
 
         hide.setAttribute("x", "126")
@@ -261,10 +327,9 @@ const render = (rootElement: HTMLElement) => (state: AppState, dispatch) => {
 const store = getStore(reducer)
 store.subscribe(render(document.querySelector(".app")))
 
-socket.addEventListener('open', (event) => {
-})
+socket.addEventListener('open', (event) => { })
 
 socket.addEventListener('message', (event) => {
     console.log(`Got a message ${event.data}`)
-    withAction(event.data, store.dispatch)
+    withAction(event.data, store)
 })

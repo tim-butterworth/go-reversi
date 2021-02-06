@@ -13,6 +13,7 @@ type Reducer<S, A extends Action> = (args: { action: A | InitialAction, state?: 
 interface Store<S, A extends Action> {
     subscribe: (s: Subscriber<S, A>) => void;
     dispatch: Dispatch<A>;
+    getState: () => S;
 }
 
 const getStore = <S, A extends Action>(reducers: Reducer<S, A>): Store<S, A> => {
@@ -31,9 +32,13 @@ const getStore = <S, A extends Action>(reducers: Reducer<S, A>): Store<S, A> => 
             subscribers.forEach((s) => s(state, dispatch))
         }
     }
+
+    const getState = (): S => state;
+
     return {
         dispatch,
-        subscribe
+        subscribe,
+        getState,
     }
 }
 
