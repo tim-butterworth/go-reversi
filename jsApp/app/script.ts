@@ -14,6 +14,7 @@ import {
 import * as r from "rambda"
 
 const socket = new WebSocket(`ws://${location.host}/ws`)
+const otherSocket = new WebSocket(`ws://${location.host}/ows`)
 
 const withAction = (rawEvent, actionConsumer) => {
     try {
